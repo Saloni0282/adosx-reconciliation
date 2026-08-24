@@ -55,13 +55,13 @@ Each entry documents what was chosen, what was rejected, and why.
 
 ---
 
-## Decision 6 — locations.csv as the authoritative tenant mapping
+## Decision 6 — `locations.csv` as the authoritative tenant mapping
 
-**Decision:** Organization is derived from the Location associated with each record. The importer loads locations first and uses the location_id → organization mapping when importing System A and System B.
+**Decision:** Organization is derived exclusively through the `Location` associated with a record. The importer loads `locations.csv` first and uses the `location_id → organization` mapping when importing System A and System B.
 
 **Rejected:** Inferring organization directly from System A/System B fields or maintaining a separate independent org mapping.
 
-**Reason:** The assignment explicitly states that locations.csv is the only source of the location-to-organization mapping. Keeping Location as the source of truth avoids conflicting tenant information.
+**Reason:** The assignment explicitly states that `locations.csv` is the only source of the location-to-organization mapping. Keeping Location as the source of truth avoids conflicting tenant information and ensures tenant filtering uses the same mapping for both systems.
 
 ---
 
@@ -77,11 +77,15 @@ Each entry documents what was chosen, what was rejected, and why.
 
 ## Decision 8 — Explicit reconciliation precedence
 
-**Decision:** Evaluate disagreements in a defined order: ORPHAN_IN_B, LOCATION_MISMATCH, DUPLICATE_IN_B, and VALUE_MISMATCH.
+**Decision:** For System B entries that resolve to a System A record, disagreements are evaluated in this order:
 
-**Rejected:** Running independent checks that could produce multiple disagreement rows for the same record.
+`LOCATION_MISMATCH > DUPLICATE_IN_B > VALUE_MISMATCH`
 
-**Reason:** A single System B entry should result in one primary disagreement classification. For example, a location mismatch should not also be treated as a value mismatch, and a duplicate should not additionally produce a value mismatch for the same reconciliation group.
+`ORPHAN_IN_B` is handled separately because the referenced System A record does not exist. `MISSING_IN_B` is also handled separately for System A records with no matching System B entry.
+
+**Rejected:** Running independent checks that could produce multiple disagreement classifications for the same reconciliation case.
+
+**Reason:** A reconciliation case should have one clear primary classification. A location mismatch should not also be reported as a value mismatch, and a duplicate should not additionally produce a value mismatch because the correct B value is ambiguous. Orphan and missing cases are separate because they represent absence of a valid counterpart rather than disagreement between two existing records.
 
 ---
 
