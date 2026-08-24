@@ -21,7 +21,7 @@ Each entry documents what was chosen, what was rejected, and why.
 
 **Rejected:** `float` (e.g. `float(a) == float(b)`).
 
-**Reason:** Binary floating point cannot represent many decimal fractions exactly — `float('94834.38') != float('94834.38')` is a real risk — and financial comparisons require exact equality. `Decimal` is the correct type for this domain.
+**Reason:** Binary floating point cannot represent many decimal fractions exactly — `float('94834.38') != float('94834.38')` is a real risk — and financial comparisons require exact equality. `Decimal` is appropriate for exact decimal-value comparison and avoids binary floating-point precision issues.
 
 ---
 
@@ -77,11 +77,11 @@ Each entry documents what was chosen, what was rejected, and why.
 
 ## Decision 8 — Explicit reconciliation precedence
 
-**Decision:** Evaluate disagreements in a defined order: ORPHAN_IN_B, LOCATION_MISMATCH, DUPLICATE_IN_B, VALUE_MISMATCH, then MISSING_IN_B.
+**Decision:** Evaluate disagreements in a defined order: ORPHAN_IN_B, LOCATION_MISMATCH, DUPLICATE_IN_B, and VALUE_MISMATCH.
 
 **Rejected:** Running independent checks that could produce multiple disagreement rows for the same record.
 
-**Reason:** A single underlying problem should produce one clear disagreement. For example, a duplicate B entry should not also generate a value mismatch, and a location mismatch should not be treated as a normal value comparison.
+**Reason:** A single System B entry should result in one primary disagreement classification. For example, a location mismatch should not also be treated as a value mismatch, and a duplicate should not additionally produce a value mismatch for the same reconciliation group.
 
 ---
 

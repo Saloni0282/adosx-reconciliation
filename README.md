@@ -204,19 +204,15 @@ Exactly one System B entry for a System A record (same location), but the values
 Comparison: `SystemA.total_value` vs `SystemB.parsed_value` using `Decimal` (not float).  
 A blank B value is a mismatch — it is stored as NULL, not treated as zero.
 
-### 5. MISSING_IN_B
-A System A record that has no System B entries at all.  
-Examples: REC-1015 and REC-1061.
-
 ### Precedence
 
-When multiple conditions could apply to the same record, higher-precedence checks take priority:
+For records that have at least one System B entry, the primary disagreement precedence is:
 
 ```
 ORPHAN_IN_B > LOCATION_MISMATCH > DUPLICATE_IN_B > VALUE_MISMATCH
 ```
 
-A location mismatch is reported as such even if the values happen to agree. A duplicate is reported even if both B values are wrong.
+`MISSING_IN_B` is evaluated separately for System A records that have no matching System B entries at all.
 
 ## Tenant Isolation
 
@@ -228,9 +224,16 @@ SystemARecord.location_id → Location.org → Organization.org_id
 SystemBEntry.location_id  → Location.org → Organization.org_id
 ```
 
-If a System B entry resolves to a System A record but their organizations differ, the result is classified as `LOCATION_MISMATCH` — not as a value comparison. This prevents ORG-A data from ever being matched against ORG-B data.
+This prevents records from different tenants from being treated as a normal same-tenant reconciliation; cross-tenant references are explicitly classified as LOCATION_MISMATCH.
 
 Because authentication is explicitly out of scope, the organization selector represents the current tenant context for this take-home. The API applies the organization filter rather than relying only on frontend filtering.
+
+### Tenant ownership for disagreement visibility
+
+For visibility and strict boundaries, each disagreement must map cleanly to one tenant:
+- For normal disagreements, the tenant is determined from System A's location.
+- For `ORPHAN_IN_B` disagreements, where no System A record exists, the tenant is determined from System B's location.
+- For `LOCATION_MISMATCH`, the System A organization is treated as the owning tenant for visibility. The System B organization is shown only as part of the discrepancy details and is not independently exposed through tenant filtering.
 
 ## API
 
@@ -303,9 +306,12 @@ This silently excluded `ORPHAN_IN_B` disagreements when filtering by org_id. Orp
 
 I noticed because after importing and querying `?org_id=ORG-A`, the count was 8 when I expected 9 (the orphan was missing). I fixed it with a combined OR filter:
 ```python
-qs.filter(system_a_org__org_id=org_id) | qs.filter(
-    system_b_org__org_id=org_id,
-    system_a_org__isnull=True
+qs.filter(
+    Q(system_a_org__org_id=org_id)
+    | Q(
+        system_b_org__org_id=org_id,
+        system_a_org__isnull=True
+    )
 )
 ```
 
