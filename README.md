@@ -48,12 +48,12 @@ React + Vite frontend
 |---|---|
 | Python / Django | Mature web framework with strong ORM for relational data |
 | Django REST Framework | Standard DRF makes the API clean and testable |
-| SQLite | Sufficient for 120 rows; no database server to install for a take-home |
+| SQLite | Keeps the project portable and easy to run without database setup for this take-home |
 | `decimal.Decimal` | Exact financial comparison — binary float is wrong for this |
 | React + Vite | Fast, minimal frontend setup with no framework overhead |
 | pytest + pytest-django | Idiomatic Python testing; easy to isolate the reconciliation logic |
 
-**On SQLite vs PostgreSQL:** The assignment spec suggests PostgreSQL. I chose SQLite because no database server is installed on this machine, and the Django ORM abstracts the engine entirely — all relational design, constraints, and query logic are identical. The DECISIONS.md entry explains this in detail. In a real production deployment, switching to PostgreSQL requires only a `DATABASES` config change.
+**On SQLite vs PostgreSQL:** The assignment spec suggests PostgreSQL. SQLite was selected because this is a small take-home dataset (120 rows per system), and SQLite allows the project to run immediately out-of-the-box from a clean clone without requiring a separate database server. Django's ORM keeps the application code database-independent. For a production deployment, I would migrate to PostgreSQL and verify any database-specific behavior.
 
 ## Setup
 
@@ -138,7 +138,7 @@ UI available at: http://localhost:5173
 
 ```bash
 cd backend
-pytest reconciliation/tests/ -v
+python -m pytest reconciliation/tests/ -v
 ```
 
 ## Data Import
@@ -210,10 +210,10 @@ Examples: REC-1015 and REC-1061.
 
 ### Precedence
 
-When multiple conditions could apply to the same record, higher-precedence types win:
+When multiple conditions could apply to the same record, higher-precedence checks take priority:
 
 ```
-LOCATION_MISMATCH > DUPLICATE_IN_B > VALUE_MISMATCH
+ORPHAN_IN_B > LOCATION_MISMATCH > DUPLICATE_IN_B > VALUE_MISMATCH
 ```
 
 A location mismatch is reported as such even if the values happen to agree. A duplicate is reported even if both B values are wrong.
@@ -229,6 +229,8 @@ SystemBEntry.location_id  → Location.org → Organization.org_id
 ```
 
 If a System B entry resolves to a System A record but their organizations differ, the result is classified as `LOCATION_MISMATCH` — not as a value comparison. This prevents ORG-A data from ever being matched against ORG-B data.
+
+Because authentication is explicitly out of scope, the organization selector represents the current tenant context for this take-home. The API applies the organization filter rather than relying only on frontend filtering.
 
 ## API
 
@@ -260,44 +262,6 @@ GET /api/disagreements/?ordering=-system_a_value
 GET /api/disagreements/?ordering=system_b_value
 ```
 
-**Response fields:**
-
-| Field | Description |
-|---|---|
-| `record_id` | System A record ID (or B's ref for orphans) |
-| `reason` | One of the 5 disagreement types |
-| `org_id` | System A organization (null for orphans) |
-| `system_b_org_id` | System B organization (null for missing) |
-| `system_a_location` | System A location ID |
-| `system_b_location` | System B location ID (empty for missing) |
-| `system_a_value` | System A total_value (null for orphans) |
-| `system_b_value` | System B parsed value (null for missing/blank/duplicate) |
-| `system_b_raw_value` | Exact System B value string from CSV |
-| `system_b_entry_ids` | List of B entry IDs (for duplicates: both IDs) |
-| `notes` | Human-readable explanation |
-
-## Testing
-
-```bash
-cd backend
-pytest reconciliation/tests/ -v
-```
-
-Tests cover:
-- `test_missing_in_b` — A record with no B entry
-- `test_clean_match_produces_no_disagreement` — happy path, no false positive
-- `test_orphan_in_b` — B entry referencing non-existent A record
-- `test_duplicate_in_b` — Two B entries for one A record
-- `test_duplicate_does_not_also_produce_value_mismatch` — precedence check
-- `test_value_mismatch` — numeric value differs
-- `test_blank_value_is_mismatch_not_zero` — blank ≠ zero
-- `test_location_mismatch` — different locations/orgs
-- `test_cross_tenant_reference_does_not_match` — tenant boundary enforcement
-- `test_location_mismatch_does_not_also_produce_missing` — no false MISSING_IN_B
-- `test_blank_actor_id_in_a_is_not_a_disagreement` — the "non-error" case (REC-1050)
-- `test_normalize_*` — all three dirty reference formats
-- `test_parse_*` — blank, Indian format, invalid, canonical
-
 ## What Was NOT Built
 
 - **Authentication / authorization** — explicitly out of scope per assignment
@@ -310,7 +274,7 @@ Tests cover:
 
 ## How I Worked with the Agent
 
-I used Antigravity (AI coding assistant) throughout this project:
+I used an AI coding assistant throughout this project:
 
 1. **Data inspection first** — I had the agent run a Python script against all three CSVs before writing any application code. This produced the concrete list of dirty cases, disagreement counts, and the "non-error" case (REC-1050's blank actor_id).
 
@@ -340,7 +304,8 @@ This silently excluded `ORPHAN_IN_B` disagreements when filtering by org_id. Orp
 I noticed because after importing and querying `?org_id=ORG-A`, the count was 8 when I expected 9 (the orphan was missing). I fixed it with a combined OR filter:
 ```python
 qs.filter(system_a_org__org_id=org_id) | qs.filter(
-    system_b_org__org_id=org_id, system_a_org__isnull=True
+    system_b_org__org_id=org_id,
+    system_a_org__isnull=True
 )
 ```
 
@@ -350,4 +315,4 @@ The handling of an edge case not present in the actual data: what should happen 
 
 ### c. If you had a second day, what would you fix first?
 
-I would add an import run log — a model that records each time `import_data` is run, what changed, and whether any rows were skipped. Currently the command is idempotent (safe to re-run) but does not tell you *what* changed between runs. In production, an importer that silently overwrites without an audit trail would be hard to debug. A simple `ImportRun` model with timestamp, row counts, and a list of changed record IDs would make the system much more trustworthy.
+I would add an import-run/audit model that records when an import occurred, how many rows were processed, and whether any rows failed parsing or validation. The current importer is safe to rerun, but it does not provide historical visibility into what changed between imports. This would make the reconciliation process easier to debug and more trustworthy in a production environment.

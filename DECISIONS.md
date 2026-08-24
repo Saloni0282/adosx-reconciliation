@@ -9,9 +9,9 @@ Each entry documents what was chosen, what was rejected, and why.
 
 **Decision:** Use SQLite as the database engine.
 
-**Rejected:** PostgreSQL (as suggested in the assignment brief).
+**Rejected:** PostgreSQL (suggested in the assignment brief).
 
-**Reason:** No PostgreSQL server is installed on the development machine; the Django ORM abstracts the engine entirely, so all relational design decisions (foreign keys, indexes, constraints) are identical. For 120 rows, the engine choice has no practical effect. Switching to PostgreSQL in a real deployment requires only a `DATABASES` config change.
+**Reason:** This is a small take-home dataset (120 rows per system), and SQLite keeps the project easy to run from a clean clone without requiring a separate database server. Django's ORM keeps the application code largely database-independent. For a production deployment, I would use PostgreSQL and verify any database-specific behavior during the migration.
 
 ---
 
@@ -55,13 +55,13 @@ Each entry documents what was chosen, what was rejected, and why.
 
 ---
 
-## Decision 6 — `locations.csv` as the sole authoritative tenant mapping
+## Decision 6 — locations.csv as the authoritative tenant mapping
 
-**Decision:** Organization (tenant) is derived exclusively from `locations.csv`. The importer loads all locations first, then uses the in-memory `location_id → Location` map for all subsequent imports.
+**Decision:** Organization is derived from the Location associated with each record. The importer loads locations first and uses the location_id → organization mapping when importing System A and System B.
 
-**Rejected:** Inferring org from System A or System B data directly, or storing org_id redundantly in SystemARecord/SystemBEntry.
+**Rejected:** Inferring organization directly from System A/System B fields or maintaining a separate independent org mapping.
 
-**Reason:** The assignment explicitly states: "locations.csv is the only place that mapping exists." Inferring org from any other source would be incorrect. Storing it redundantly would create an inconsistency risk if the location changes.
+**Reason:** The assignment explicitly states that locations.csv is the only source of the location-to-organization mapping. Keeping Location as the source of truth avoids conflicting tenant information.
 
 ---
 
@@ -71,14 +71,24 @@ Each entry documents what was chosen, what was rejected, and why.
 
 **Rejected:** Treating it as a value mismatch or ignoring the location difference.
 
-**Reason:** Location determines organization (tenant). A System B entry from ORG-B referencing an ORG-A record is not just a value disagreement — it is a tenant boundary violation. Reporting it as `LOCATION_MISMATCH` makes the severity clear and prevents any downstream code from accidentally merging cross-tenant data. The reconciler checks location before comparing values; if locations differ, value comparison is skipped entirely.
+**Reason:** Location determines organization (tenant). A System B entry from ORG-B referencing an ORG-A record is not just a value disagreement — it is a tenant boundary violation. Reporting it as `LOCATION_MISMATCH` makes the severity clear and prevents any downstream code from accidentally merging cross-tenant data. Because authentication is explicitly out of scope, the organization selector represents the current tenant context for this take-home. The API applies the organization filter rather than relying only on frontend filtering.
 
 ---
 
-## Decision 8 — Store disagreements in a `Disagreement` table, not compute on the fly
+## Decision 8 — Explicit reconciliation precedence
 
-**Decision:** After import, compute all disagreements and persist them in a `Disagreement` table. The API reads from this table.
+**Decision:** Evaluate disagreements in a defined order: ORPHAN_IN_B, LOCATION_MISMATCH, DUPLICATE_IN_B, VALUE_MISMATCH, then MISSING_IN_B.
 
-**Rejected:** Computing disagreements live on every API request (querying SystemARecord and SystemBEntry directly with complex SQL).
+**Rejected:** Running independent checks that could produce multiple disagreement rows for the same record.
 
-**Reason:** For this dataset size, both approaches are equally fast. Persisting disagreements makes the API simple (a single SELECT with filters) and keeps reconciliation logic in Python (testable) rather than spread across SQL queries. It also separates import from query concerns cleanly.
+**Reason:** A single underlying problem should produce one clear disagreement. For example, a duplicate B entry should not also generate a value mismatch, and a location mismatch should not be treated as a normal value comparison.
+
+---
+
+## Decision 9 — Persist disagreements after reconciliation
+
+**Decision:** After importing the source data, compute the disagreements and persist them in a Disagreement table. The API reads from this table.
+
+**Rejected:** Computing disagreements dynamically on every API request.
+
+**Reason:** For this dataset size, both approaches would perform adequately. Persisting the reconciliation result keeps the API simple and keeps the comparison logic isolated and testable. The import command clears/rebuilds the reconciliation results when a new import is performed (by calling `Disagreement.objects.all().delete()`), so the disagreement table represents the latest imported dataset.
