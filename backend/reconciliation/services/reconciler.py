@@ -42,6 +42,7 @@ def _reconcile(all_a: list, all_b: list) -> list:
             system_b_value=entry.parsed_value,
             system_b_raw_value=entry.raw_value,
             system_b_entry_ids=[entry.entry_id],
+            notes=f"System B references non-existent System A record (Raw ref: {entry.raw_record_ref!r})",
         ))
 
     matched_a_ids = set()
@@ -73,6 +74,7 @@ def _reconcile(all_a: list, all_b: list) -> list:
                 system_b_value=entry.parsed_value,
                 system_b_raw_value=entry.raw_value,
                 system_b_entry_ids=[entry.entry_id],
+                notes=f"Tenant boundary violation: System A has Location {a_loc_id} ({a_org}), but System B has Location {entry.location.location_id} ({entry.location.org})",
             ))
 
         if len(same_loc_entries) > 1:
@@ -87,6 +89,7 @@ def _reconcile(all_a: list, all_b: list) -> list:
                 system_b_value=None,
                 system_b_raw_value='',
                 system_b_entry_ids=[e.entry_id for e in same_loc_entries],
+                notes=f"System B contains {len(same_loc_entries)} duplicate entries mapping to this record",
             ))
             continue
 
@@ -95,6 +98,11 @@ def _reconcile(all_a: list, all_b: list) -> list:
             a_val = a_rec.total_value
             b_val = entry.parsed_value
             if (b_val is None) or (a_val != b_val):
+                note_text = ""
+                if b_val is None:
+                    note_text = f"System B value is blank (Raw value: {entry.raw_value!r})"
+                else:
+                    note_text = f"Value mismatch: System A Total Value is {a_val}, but System B Value is {b_val}"
                 disagreements.append(Disagreement(
                     record_id=record_id,
                     reason=Disagreement.REASON_VALUE,
@@ -106,6 +114,7 @@ def _reconcile(all_a: list, all_b: list) -> list:
                     system_b_value=b_val,
                     system_b_raw_value=entry.raw_value,
                     system_b_entry_ids=[entry.entry_id],
+                    notes=note_text,
                 ))
 
     for a_rec in all_a:
@@ -121,6 +130,7 @@ def _reconcile(all_a: list, all_b: list) -> list:
                 system_b_value=None,
                 system_b_raw_value='',
                 system_b_entry_ids=[],
+                notes="System A record has no matching entry in System B",
             ))
 
     return disagreements
