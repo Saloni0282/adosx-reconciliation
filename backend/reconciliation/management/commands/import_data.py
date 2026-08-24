@@ -46,9 +46,10 @@ class Command(BaseCommand):
         if options['data_dir']:
             data_dir = Path(options['data_dir'])
         else:
-            # backend/ is parents[4] of this file; project root is parents[4].parent
-            backend_dir = Path(__file__).resolve().parents[4]
-            data_dir = backend_dir.parent / 'data'
+            # This file: backend/reconciliation/management/commands/import_data.py
+            # parents[4] = adosx-reconciliation/  (the project root)
+            # data/ lives directly under the project root
+            data_dir = Path(__file__).resolve().parents[4] / 'data'
 
         self.stdout.write(f'Data directory: {data_dir}')
 
